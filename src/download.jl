@@ -55,15 +55,16 @@ function try_get_filename_from_request(req)
 end
 
 
-determine_file(::Nothing, resp) = determine_file(tempdir(), resp)
+determine_file(::Nothing, args...) = determine_file(tempdir(), args...)
 # ^ We want to the filename if possible because extension is useful for FileIO.jl
 
-function determine_file(path, resp)
+function determine_file(path, initial_resp, resp)
     # get the name
     name = if isdir(path)
         # we have been given a path to a directory
         # got to to workout what file to put there
         filename = something(
+                        try_get_filename_from_headers(initial_resp),
                         try_get_filename_from_headers(resp),
                         try_get_filename_from_request(resp.request),
                         basename(tempname())  # fallback, basically a random string
@@ -104,14 +105,15 @@ function download(url::AbstractString, local_path=nothing, headers=Header[]; upd
     format_seconds(x) = "$(round(x; digits=2)) s"
     format_bytes_per_second(x) = format_bytes(x) * "/s"
 
-
     @debug 1 "downloading $url"
+    # needed to find Content-Disposition if redirected, just a light-weight HEAD request
+    initial_resp = HTTP.request("HEAD", url, headers; redirect=false, kw...)
     local file
     HTTP.open("GET", url, headers; kw...) do stream
         resp = startread(stream)
         eof(stream) && return  # don't do anything for streams we can't read (yet)
 
-        file = determine_file(local_path, resp)
+        file = determine_file(local_path, initial_resp, resp)
         total_bytes = parse(Float64, header(resp, "Content-Length", "NaN"))
         downloaded_bytes = 0
         start_time = now()
